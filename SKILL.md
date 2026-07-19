@@ -1,336 +1,308 @@
 ---
 name: ppt-generator
 description: >
-  Automatically generate professional PowerPoint (.pptx) presentations through an interactive step-by-step guided conversation. Use this skill whenever the user mentions making a PPT, presentation, slides, 演示文稿, 幻灯片, slideshow, deck, quarterly report, project briefing, lecture slides, pitch deck, training material, or any request to create presentation files — even if they don't explicitly say "PPT" or "skill". This skill handles the full pipeline: requirement gathering, content generation, image sourcing (web search + AI), design/layout selection, .pptx generation, typography quality check, and iterative refinement. Supports Chinese and English, all use cases (business/academic/tech/creative), and scales from 5-slide briefs to 30+ page comprehensive decks.
+  Automatically generate professional PowerPoint (.pptx) presentations through an interactive step-by-step guided conversation. Use this skill whenever the user mentions making a PPT, presentation, slides, 演示文稿, 幻灯片, slideshow, deck, quarterly report, project briefing, lecture slides, pitch deck, training material, or any request to create presentation files — even if they don't explicitly say "PPT" or "skill". Supports Chinese and English, all use cases (business/academic/tech/creative), and scales from 5-slide briefs to 30+ page comprehensive decks. Features: guided 10-dimension requirement gathering, dual-channel image sourcing (web search + AI), HTML-to-PPTX native generation via PptxGenJS (requires claude-office-skills installed alongside), python-pptx fallback for templates, typography quality check, and iterative refinement.
 ---
 
-# PPT Generator
+# PPT Generator (Fusion Edition)
 
-Generate professional PowerPoint (.pptx) files through guided interactive conversation.
+Fuses the guided conversation and media sourcing of ppt-generator with the high-quality native PPTX rendering of claude-office-skills.
 
-## Why This Skill Exists
+## Prerequisites
 
-Creating a polished presentation takes time and design sense — most people spend hours tweaking layouts and formatting instead of focusing on content. This skill automates the mechanical parts while keeping the user in creative control. It handles the full pipeline: understand what the user needs → generate content → source media → design slides → build the file → check quality → iterate. The result is a .pptx the user can download and further edit in PowerPoint.
+This skill works best when **claude-office-skills** is installed alongside it:
+```
+~/.claude/skills/
+├── ppt-generator/           ← this skill (guided pipeline + media sourcing)
+└── claude-office-skills/    ← rendering engine (html2pptx + PptxGenJS)
+```
 
-## The Pipeline (7 Steps)
+The html2pptx engine is at `../claude-office-skills/html2pptx-local.cjs`. If that path doesn't exist, fall back to python-pptx mode.
+
+Node dependencies must be installed once in claude-office-skills:
+```bash
+cd ~/.claude/skills/claude-office-skills && npm install
+```
+
+## The Pipeline
 
 ```
 Gather → Content → Media → Design → Generate → Check → Iterate
+                                    ├─ Mode A: python-pptx (templates, quick)
+                                    └─ Mode B: html2pptx (native shapes, visual quality) ← DEFAULT
 ```
-
-Don't skip steps. Each step is essential for quality. But be smart — if the user says "just make it fast" or "直接生成", collapse steps 1-4 into a single efficient pass.
 
 ---
 
-## Step 1: Gather Requirements (Guided Conversation)
+## Step 1: Gather Requirements
 
-The goal is to collect enough information to make informed design and content decisions. Don't ask all questions at once — ask them naturally, one or two at a time, adapting to what the user has already volunteered.
+Ask naturally, 1-2 questions at a time. Cover these dimensions:
 
-### The 10 Dimensions to Cover
+| Dimension | What to ask |
+|-----------|------------|
+| **Topic** | What's this about? |
+| **Scenario** | Who's the audience? (boss/client/students/conference) |
+| **Scale** | How many slides? |
+| **Language** | Chinese / English / Bilingual? |
+| **Template** | Have a .pptx template, or design from scratch? |
+| **Style** | Visual preference? (Business / Academic / Tech dark / Creative cute / "You choose") |
+| **Content** | Have material ready, or should I draft? |
+| **Image Style** | Realistic photos / Anime-cartoon / Minimalist / Mixed? |
+| **Design Richness** | Clean minimal, or rich decorative? ("可爱搞怪" needs stars/cards/bubbles; "商务" needs clean lines) |
+| **Process** | Review outlines first, or go straight to final? |
 
-| Dimension | Key Question | Why It Matters |
-|-----------|-------------|----------------|
-| **Topic** | What's the presentation about? | Drives content generation direction |
-| **Scenario** | Who's the audience? (boss/client/students/conference) | Determines formality, tone, design style |
-| **Scale** | Roughly how many slides? | Affects structure depth and generation strategy |
-| **Language** | Chinese, English, or both? | Font selection, text positioning |
-| **Template** | Have a .pptx template? Or should I design from scratch? | Build mode: template-fill vs. code-generate |
-| **Style** | Preferred visual style? (Business professional / Academic clean / Tech dark / Creative bold / "You choose") | Color palette, font pairing, layout density |
-| **Content** | Have specific content ready, or should I draft it for you? | AI generation vs. user-provided text |
-| **Image Style** | For any visuals: realistic photos, anime/cartoon, minimalist abstract, or mixed? | Image sourcing strategy (search vs. AI) |
-| **Charts/Data** | Need charts, tables, flowcharts, or diagrams? | Triggers charting tools and Mermaid rendering |
-| **Process** | Want to review outlines before generation, or go straight to final output? | Determines checkpoint frequency |
+**Crucial for creative/cute styles**: Ask "你喜欢哪种感觉？粉嫩少女 / 游戏公告栏 / 漫画分镜 / 你帮我混搭？"
 
-### How to Ask
-
-Be conversational, not robotic. For example:
-- "这个PPT是给谁看的？客户、领导还是大会听众？" (Who's the audience?)
-- "大概需要多少页？5-10页的简报还是更完整的报告？" (How many slides?)
-
-**Important**: If the user already mentioned something (e.g., "帮我做个Q2销售汇报PPT"), don't re-ask — infer what you can and only ask about the missing pieces. The user's first sentence often answers 3-4 dimensions at once.
-
-Stop gathering when you have answers for most dimensions, or when the user signals impatience. It's better to start generating with 80% information than to exhaust the user with questions.
+Stop when you have ~80% of answers. Better to start than exhaust the user.
 
 ---
 
 ## Step 2: Generate Content
 
-### 2a: Produce an Outline
+### 2a: Outline
+Show a structured outline. Ask for approval.
 
-Based on the topic and scale, generate a structured outline:
+### 2b: Slide Content
+Draft text per slide. Titles clear and concise. Body as bullet points (not paragraphs), 3-7 items max.
 
-```
-## PPT 大纲
-1. 封面 — [标题]
-2. 目录 — [章节概览]
-3. [章节一标题]
-   3.1 [小节]
-   3.2 [小节]
-4. [章节二标题]
-   ...
-N. 总结与致谢
-```
+### 2c: Content Density Limits
 
-Show the outline to the user. Ask: "这个大纲可以吗？有没有要增减的内容？"
+| Slide Type | Max Content |
+|------------|------------|
+| Title slide | 1 heading + 1 subtitle |
+| Content slide | 1 heading + 4-6 bullets |
+| Card grid | 1 heading + 6 cards max |
+| Stats slide | 3-4 big numbers |
+| Quote | 1 quote (max 3 lines) + attribution |
 
-### 2b: Generate Slide Content
-
-Once the outline is approved, draft the text for each slide:
-- **Titles**: Clear, concise, action-oriented
-- **Body**: Bullet points (not paragraphs), 3-7 items per slide
-- **Data placeholders**: Mark where charts/tables should go with `[图表: 描述]`
-- **Image placeholders**: Mark with `[图片: 搜索关键词 | 风格偏好]`
-
-For the iterative mode, show content slide-by-slide or in batches for large decks. For direct mode, generate all at once.
-
-### 2c: Handle User-Provided Content
-
-If the user pastes their own text/outline/data, don't overwrite it — use it as the source of truth. Clean up formatting, suggest improvements gently, but respect their material.
+**Content exceeds limits? Split into multiple slides.**
 
 ---
 
 ## Step 3: Source Media
 
-### Image Strategy (Dual-Channel)
+**MANDATORY**: Actually search for and download images. Never leave placeholders.
 
-**Default priority**: Web search for real photos → AI generation for style-specific needs.
+### Dual-Channel Strategy
 
-| User's Style Preference | Primary Channel | Fallback |
-|------------------------|-----------------|----------|
-| 写实/Realistic/Professional | Web search (Unsplash, Pexels, Bing Images) | AI generation |
-| 二次元/卡通/Anime | AI generation | Web search |
-| 极简/抽象/Minimalist | AI generation | Web search |
-| 商务/Business | Web search | AI generation |
-| "你帮我选" / Not specified | Smart auto-select based on PPT scenario | — |
+| Style | Primary Channel | How |
+|-------|----------------|-----|
+| Realistic/Business | Web search | Tavily → Unsplash/Pexels CDN download |
+| Anime/Cartoon | Web search first | "wallpaper HD free" queries, Unsplash fallback |
+| Minimalist/Abstract | AI generation | Describe, generate, label as AI |
+| Game/IP-specific | Web search + copyright notice | Tell user: official art is copyrighted; educational use OK |
 
-### How to Source Images
+### How to Source (Do Not Skip)
 
-1. **Web search**: Use the search tool (Tavily or built-in) to find suitable images. Search with descriptive keywords + style modifiers. E.g., "business meeting professional photo" or "mountain landscape minimalist"
-2. **AI generation**: Describe the image need in detail, then use available image generation tools. Always note that AI-generated images should be labeled as such.
-3. **Download**: Save images locally, then insert into the PPT via scripts. Track all image sources for attribution.
+1. Search with multiple queries, different angles
+2. Actually download via `requests` — try multiple CDN sources
+3. For copyrighted content (game characters etc.): be honest, suggest user downloads official media for classroom use
+4. Track all image sources for attribution
 
-### Video Recommendations
+### Image Dissatisfaction Flow
 
-If the presentation context suggests video would enhance it (product demos, event highlights, training), proactively suggest:
-- **Free stock**: Pexels Video, Pixabay Video, Coverr
-- **Professional**: Storyblocks, Artgrid
-- **User's own**: Ask if they have local video files
+If user doesn't like the images:
 
-Don't push video if the context doesn't call for it (e.g., a text-heavy academic report).
+1. Provide direct search URLs:
+```
+📸 Find better images at:
+- https://unsplash.com/s/photos/[keyword]
+- https://www.pexels.com/search/[keyword]
+- https://wall.alphacoders.com/ (anime/game wallpapers)
+- https://www.freepik.com/ (illustrations)
+```
 
----
+2. Tell user: "把图片放到 `[workspace]/images/` 目录下，放好后告诉我，我立刻重新生成。"
 
-## Step 4: Design & Layout
-
-### Scene-Adaptive Design Selection
-
-Based on the scenario from Step 1, pick a design direction:
-
-| Scenario | Palette | Font Feel | Layout Style |
-|----------|---------|-----------|--------------|
-| 商业汇报 (Business) | Deep blue + white + accent gold | Professional sans-serif | Structured, data-forward |
-| 教学课件 (Academic) | Clean white + navy + muted accent | Readable serif headings | Information-dense, clear hierarchy |
-| 技术分享 (Tech) | Dark bg + neon accent + white text | Modern monospace touches | Code blocks, diagrams |
-| 创意演讲 (Creative) | Bold contrasting colors | Playful yet readable | Visual-first, minimal text |
-| 通用 (General) | Neutral gray + one vibrant accent | Clean sans-serif | Balanced text + visuals |
-
-Let the user override your choice. The design is a suggestion, not a command.
-
-### Key Design Principles
-
-- **Less is more**: Each slide should communicate ONE idea. If a slide has more than 7 bullet points, split it.
-- **Consistency**: Same fonts, same color roles, same spacing throughout. This is non-negotiable.
-- **Readability**: Minimum 18pt for body text, 28pt+ for titles. No exceptions.
-- **White space**: Don't fill every corner. Empty space is a design element.
+3. Re-generate with user's images.
 
 ---
 
-## Step 5: Generate the PPTX
+## Step 4: Design
 
-Use the bundled `scripts/generate_pptx.py` script to build the .pptx file.
+### Scenario → Design Mapping
 
-### Usage
+| Scenario | Palette | Decoration Level | Layout Style |
+|----------|---------|-----------------|--------------|
+| Business | Deep blue + white + gold | Low — clean, data cards | Structured, KPI-forward |
+| Academic | White + navy + purple | Low-Med — numbered sections | Info-dense, clear hierarchy |
+| Tech | Dark navy + neon teal + pink | Medium — code blocks, neon lines | Diagrams, code |
+| **Creative/Cute** | **Pink + yellow + teal + green (Memphis pop) or user's choice** | **HIGH — go all out** | **Rounded cards, stars, bubbles, game-UI cards, bold borders, emoji-free decorative shapes** |
+| General | Gray + one vibrant accent | Medium — balanced | Text + visuals |
 
+### AI Slop Avoidance (for creative styles)
+
+- DO: bold color combos, asymmetrical layouts, unique decorative shapes
+- DO: CSS box-shadows, border-left accents, flexbox grids
+- DON'T: gray-on-white everything, same-sized cards repeated, Inter/Roboto fonts
+- DON'T: cyan-on-dark gradients, glassmorphism, emoji as design elements
+
+---
+
+## Step 5: Generate PPTX
+
+### Mode Selection
+
+| Condition | Mode |
+|-----------|------|
+| User has a .pptx template | **Mode A**: python-pptx template fill |
+| No template, visual quality matters | **Mode B**: html2pptx (DEFAULT) |
+| User says "快速" / "简单就行" | **Mode A**: python-pptx quick mode |
+
+### Mode B: html2pptx (DEFAULT — Native Quality)
+
+**This is the primary generation mode.** It produces PPTX where text is editable textboxes, colors are native shapes, and borders are native strokes — no screenshots.
+
+#### Workflow
+
+1. **Create one HTML file per slide** in `outputs/<project-name>/`
+
+2. **HTML rules** (MANDATORY):
+   - Body: `width:960pt;height:540pt;display:flex;...;margin:0;`
+   - Fonts: web-safe only — Arial, Georgia, Verdana, Tahoma, Trebuchet MS, Impact
+   - ALL text in `<p>`, `<h1>`-`<h6>`, `<ul>`, `<ol>` — never bare text in `<div>` or `<span>`
+   - NO `<br>` tags — use separate `<p>` elements
+   - NO manual bullets (•, -, *) — use `<ul>` or `<ol>`
+   - Backgrounds and borders only on `<div>` elements
+   - Use `display:flex` for layout
+   - Use hex colors with `#` prefix
+
+3. **Write build script** `outputs/<project-name>/build.cjs`:
+   ```javascript
+   const pptxgen = require('pptxgenjs');
+   const html2pptx = require('../claude-office-skills/html2pptx-local.cjs');
+   const fs = require('fs'), path = require('path');
+
+   async function main() {
+       const pptx = new pptxgen();
+       pptx.layout = 'LAYOUT_WIDE';
+       const slides = ['slide_01.html', 'slide_02.html', ...];
+       for (const f of slides) {
+           await html2pptx(path.join(__dirname, f), pptx);
+       }
+       await pptx.writeFile({ fileName: 'output.pptx' });
+   }
+   main();
+   ```
+
+4. **Run**: `node outputs/<project-name>/build.cjs`
+
+5. **For user images**: Reference them in HTML with `<img src="images/photo.jpg" style="max-width:100%;max-height:min(50vh,400px);object-fit:contain;">`
+
+#### HTML Slide Templates
+
+**Title Slide**:
+```html
+<body style="width:960pt;height:540pt;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#FF6B9D;font-family:Arial,sans-serif;margin:0;">
+  <div style="text-align:center;">
+    <h1 style="font-size:42pt;font-weight:900;color:#fff;margin:0;">Title</h1>
+    <p style="font-size:18pt;color:rgba(255,255,255,0.85);margin:0;margin-top:8pt;">Subtitle</p>
+  </div>
+</body>
+```
+
+**Content Slide with Cards**:
+```html
+<body style="width:960pt;height:540pt;display:flex;flex-direction:column;background:#FFFBFA;font-family:Arial,sans-serif;margin:0;padding:30pt;box-sizing:border-box;">
+  <div style="background:#FF6B9D;height:5pt;width:100%;margin-bottom:16pt;"></div>
+  <p style="font-size:24pt;font-weight:900;color:#FF6B9D;margin:0;margin-bottom:16pt;">Slide Title</p>
+  <div style="display:flex;gap:16pt;flex:1;">
+    <div style="flex:1;background:#fff;border:3pt solid #000;padding:16pt;">
+      <p style="font-size:28pt;font-weight:900;color:#FF6B9D;margin:0;">Key Number</p>
+      <p style="font-size:13pt;font-weight:900;margin:0;margin-top:4pt;">Label</p>
+      <p style="font-size:10pt;color:#333;margin:0;margin-top:4pt;">Description text here.</p>
+    </div>
+    <!-- repeat cards -->
+  </div>
+</body>
+```
+
+**Stats Slide** (big numbers on colored bg):
+```html
+<body style="width:960pt;height:540pt;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#F5D547;font-family:Arial,sans-serif;margin:0;">
+  <p style="font-size:32pt;font-weight:900;color:#000;margin:0;margin-bottom:30pt;">Section Title</p>
+  <div style="display:flex;gap:30pt;">
+    <div style="text-align:center;background:#fff;border:3pt solid #000;padding:24pt 36pt;">
+      <p style="font-size:42pt;font-weight:900;color:#FF6B9D;margin:0;">$10B+</p>
+      <p style="font-size:14pt;font-weight:700;margin:0;margin-top:6pt;">Global Revenue</p>
+    </div>
+    <!-- repeat stats -->
+  </div>
+</body>
+```
+
+**Market Bar Chart** (CSS bars — simple and effective):
+```html
+<body style="width:960pt;height:540pt;display:flex;flex-direction:column;justify-content:center;background:#4ECDC4;font-family:Arial,sans-serif;margin:0;padding:30pt;box-sizing:border-box;">
+  <p style="font-size:28pt;font-weight:900;color:#fff;margin:0;margin-bottom:24pt;">Market Share</p>
+  <div style="display:flex;flex-direction:column;gap:10pt;width:100%;">
+    <div style="display:flex;align-items:center;gap:12pt;">
+      <p style="width:100pt;font-size:14pt;font-weight:900;color:#fff;text-align:right;margin:0;">Japan</p>
+      <div style="flex:1;background:#FF6B9D;height:28pt;display:flex;align-items:center;padding-left:8pt;">
+        <p style="font-size:13pt;font-weight:900;color:#fff;margin:0;">35%</p>
+      </div>
+    </div>
+    <!-- repeat bars at different widths -->
+  </div>
+</body>
+```
+
+**Closing Slide**:
+```html
+<body style="width:960pt;height:540pt;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#FF6B9D;font-family:Arial,sans-serif;margin:0;">
+  <div style="background:#fff;border:4pt solid #000;padding:32pt 56pt;text-align:center;">
+    <h1 style="font-size:48pt;font-weight:900;color:#FF6B9D;margin:0;">Thank You</h1>
+    <p style="font-size:18pt;font-weight:900;color:#000;margin:0;margin-top:12pt;">Q & A</p>
+  </div>
+</body>
+```
+
+### Mode A: python-pptx (Template or Quick Mode)
+
+Use the bundled `scripts/generate_pptx.py`:
 ```bash
-python scripts/generate_pptx.py \
-  --config <path-to-config.json> \
-  --output <output-filename.pptx>
+python scripts/generate_pptx.py --config config.json --output output.pptx
 ```
 
-### Config JSON Structure
-
-Before running the script, write a config.json that captures all decisions from Steps 1-4:
-
-```json
-{
-  "meta": {
-    "title": "Q2 销售业绩汇报",
-    "language": "zh",
-    "scenario": "business"
-  },
-  "design": {
-    "mode": "from-scratch",
-    "template_path": null,
-    "slide_width_inches": 13.333,
-    "slide_height_inches": 7.5,
-    "palette": {
-      "primary": "#1a3a5c",
-      "secondary": "#f0f4f8",
-      "accent": "#e8a817",
-      "text": "#333333",
-      "background": "#ffffff"
-    },
-    "fonts": {
-      "title": "Microsoft YaHei",
-      "body": "Microsoft YaHei",
-      "title_size_pt": 32,
-      "body_size_pt": 18
-    }
-  },
-  "slides": [
-    {
-      "type": "cover",
-      "title": "2026年Q2 销售业绩汇报",
-      "subtitle": "销售部 | 2026年7月"
-    },
-    {
-      "type": "toc",
-      "title": "目录",
-      "items": ["业绩总览", "区域分析", "产品表现", "下季度规划"]
-    },
-    {
-      "type": "content",
-      "layout": "text_left_image_right", 
-      "title": "Q2整体业绩",
-      "body": ["总营收：¥5,200万", "同比增长：+18%", "完成率：112%"],
-      "image": {"path": "assets/img/chart_q2.png", "alt": "Q2业绩趋势图"}
-    },
-    {
-      "type": "chart",
-      "title": "区域销售对比",
-      "chart_type": "bar",
-      "data": {"categories": ["华东","华南","华北","西部"], "series": {"销售额": [2100, 1500, 1100, 500]}}
-    },
-    {
-      "type": "table",
-      "title": "产品线表现",
-      "headers": ["产品", "销售额", "同比增长", "市场份额"],
-      "rows": [["产品A", "¥1,800万", "+22%", "35%"], ["产品B", "¥1,400万", "+15%", "27%"]]
-    },
-    {
-      "type": "ending",
-      "title": "谢谢",
-      "subtitle": "Q&A"
-    }
-  ]
-}
-```
-
-### Supported Slide Types
-
-- `cover` — Title slide with title + subtitle + optional background
-- `toc` — Table of contents with numbered or bullet items
-- `content` — General content slide. Supports layouts: `text_only`, `text_left_image_right`, `image_left_text_right`, `text_top_image_bottom`, `two_column`, `three_column`
-- `chart` — Data chart. Supports `bar`, `line`, `pie`, `horizontal_bar`. Data in categories + series format.
-- `table` — Formatted data table with header row styling
-- `image` — Full-slide image with optional overlay text
-- `diagram` — Flowchart/architecture diagram (pre-rendered as image)
-- `ending` — Closing slide with thank you + Q&A
-
-### Template Mode
-
-If the user provides a .pptx template:
-- Set `design.mode` to `"template"`
-- Set `design.template_path` to the template file path
-- The script reads slide layouts from the template and fills in content respecting the template's existing placeholders and styling
-- Read `references/template_guide.md` for detailed template handling instructions
+Read `references/layout_catalog.md` for available slide types and layouts.
 
 ---
 
-## Step 6: Typography & Layout Check
+## Step 6: Quality Check
 
-After generating the .pptx, **always** run the quality check script:
-
+After generation, run the typography checker on the output:
 ```bash
 python scripts/check_typography.py <output.pptx>
 ```
 
-This script inspects each slide and produces a report checking:
-
-| Check | What It Catches |
-|-------|----------------|
-| **Text overflow** | Text boxes with content exceeding their boundaries |
-| **Font consistency** | Mixed or unexpected fonts within the same slide |
-| **Minimum font size** | Body text below 18pt, titles below 28pt |
-| **Alignment** | Elements not aligned to grid/guides |
-| **Contrast** | Text-background color contrast below readability thresholds |
-| **Overlapping** | Elements that visually overlap or are too close |
-
-### Presenting the Report
-
-Show the user a clean summary:
-
-```
-🔍 排版检查报告 (5/20 页有问题)
-├─ Slide 3: 文本框溢出 (正文第2段超出边界 ~12pt)
-├─ Slide 7: 标题字号过小 (24pt → 建议 ≥28pt)  
-├─ Slide 7: 颜色对比度偏低 (浅灰文字#999 on 白色)
-├─ Slide 12: 两个文本框重叠 (左侧列表 vs 右侧图片)
-└─ Slide 15: 字体不一致 (正文混入了宋体)
-
-是否自动修复这些问题？(y/n/逐项确认)
-```
-
-If the user says yes, the script attempts fixes and reports what was changed. Some issues (like content that's genuinely too long) can't be auto-fixed — flag those for manual adjustment.
+For html2pptx output, also visually verify:
+- No text cut off at slide edges
+- Colors render as expected
+- Images are positioned correctly
 
 ---
 
 ## Step 7: Iterate
 
-After users review the output:
-- They may want layout changes ("第3页换个左右布局")
-- They may want style tweaks ("整体颜色太暗了")
-- They may want content adjustments ("加一页关于竞品分析")
-
-Treat each round of feedback as a mini-cycle: understand the change → modify the config → re-generate → re-check. Re-use existing slides that don't need changes.
-
-When the user is satisfied, deliver the final .pptx file path.
+Each round of feedback = mini-cycle: understand change → modify HTML or config → re-generate → re-check.
 
 ---
 
-## Bundled Resources
+## Quick Reference: Mode Selection
 
-### Scripts
-- `scripts/generate_pptx.py` — Core PPTX generation engine. Read this when you need to understand available slide types, layout options, or chart capabilities in detail.
-- `scripts/check_typography.py` — Post-generation quality checker. Run after every generation.
-- `scripts/search_images.py` — Image search and download helper.
-
-### References
-- `references/design_guide.md` — Detailed design guidelines: color palettes, font pairings, spacing rules, slide composition patterns. Read when making design decisions.
-- `references/layout_catalog.md` — Visual catalog of all slide layouts with descriptions and use cases.
-- `references/template_guide.md` — How to work with user-provided .pptx templates. Read when the user supplies a template.
-
-### Assets
-- `assets/templates/` — Built-in PPT templates for quick start (business, academic, tech, creative). Use when the user chooses "built-in template" mode but doesn't provide their own.
-
----
-
-## Quick Reference: When to Skip Steps
-
-If the user explicitly says "直接生成" / "just make it" / "快速模式" / "不要问太多":
-- ✅ Skip Step 1: Infer from context, ask at most 3 critical questions
-- ✅ Skip Step 2b confirmation: Generate content without user review
-- ✅ Skip Step 4: Auto-select design, don't ask
-- ❌ Never skip Step 5 (generation itself)
-- ❌ Never skip Step 6 (quality check — it's automated anyway)
-- ✅ Skip Step 7 unless user provides feedback
+| User says | Use |
+|-----------|-----|
+| "用我的模板" | Mode A: python-pptx template fill |
+| "快速/简单就行" | Mode A: python-pptx quick |
+| Everything else | **Mode B: html2pptx** (default) |
 
 ---
 
 ## Important Reminders
 
-- **Image attribution**: Every image inserted should have its source tracked (URL or "AI-generated"). Add a small footnote or remarks slide with image credits at the end.
-- **File paths**: Use absolute paths for all script invocations. The working directory may vary.
-- **Chart data integrity**: Always validate user-provided data before charting — check for logic errors (e.g., percentages > 100%, negative values in wrong contexts).
-- **Mermaid diagrams**: When the user needs flowcharts or architecture diagrams, generate Mermaid syntax, render it to an image via available tools, then insert as a diagram slide.
-- **Large presentations (>20 slides)**: Warn the user that generation will take longer. Suggest splitting into sections for better manageability.
+- **Image attribution**: Track sources. Add credits slide or footnote.
+- **Copyright**: For game/movie IP images, tell user official art is copyrighted; suggest official media for educational use.
+- **The html2pptx engine** lives at `../claude-office-skills/html2pptx-local.cjs` relative to this skill. If missing, fall back to python-pptx.
+- **Web-safe fonts only** in html2pptx mode: Arial, Georgia, Verdana, Tahoma, Trebuchet MS, Impact, Times New Roman, Courier New, Comic Sans MS.
+- **Large presentations (>15 slides)**: Warn user. Split build into batches.
+- **NO emoji** in slide content. Use styled text instead.
